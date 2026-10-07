@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { to: "/live-operations", label: "Live Operations" },
   { to: "/approvals", label: "Approvals" },
   { to: "/students", label: "Students" },
-  { to: "/drivers", label: "Drivers" },
+  { to: "/drivers-vehicles", label: "Drivers & Vehicles" },
   { to: "/routes-stops", label: "Routes & Stops" },
   { to: "/settings", label: "Settings" },
 ];
