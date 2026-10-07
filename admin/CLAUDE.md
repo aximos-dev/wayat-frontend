@@ -40,6 +40,12 @@ setup — same rules as the backend, see the workspace `CLAUDE.md`.
   (`app.cors.allowed-origins`) must include this app's origin, or every request fails silently
   client-side with no server-side trace. Hit this for real once already.
 - No test suite exists yet.
+- **Typecheck with `npx tsc -p tsconfig.app.json --noEmit` (or `npx tsc -b`) — never bare
+  `npx tsc --noEmit`.** The root `tsconfig.json` is a solution file (`"files": []`, just
+  `references`); plain `tsc --noEmit` against it checks nothing and silently exits 0 regardless
+  of real errors. This looked like a clean typecheck for most of a session while a real bug
+  (`DriverModal.tsx` reading field names that no longer existed on `Driver`) went completely
+  undetected — only caught by accident when the project config was pointed at directly.
 
 ## Architecture conventions
 
@@ -100,10 +106,6 @@ Tailwind v4 generates utility classes from the `@theme` var name after `--color-
   app could read them. Hardening would move the refresh token to an httpOnly cookie the backend
   sets — the backend doesn't do that yet (it returns both tokens in the JSON body today); this
   is a two-sided change, not just a frontend one.
-- **No true drag-and-drop stop reordering** on the "Add a route" page — ↑/↓ buttons instead.
-  Functionally equivalent, much less code/risk for a v1. The Figma design shows a drag handle.
-- **No map picker for stop coordinates** — admin types lat/lng directly (e.g. copied from Google
-  Maps). A real map-pin picker is a known, unbuilt gap.
 - **The Figma "Add a vehicle" screen's "Assign Driver" and "Documents" (insurance/fitness
   certificate expiry) fields have zero backend support.** Today a driver is only attached to a
   *ride*, never permanently to a *vehicle*, and no document-expiry field exists anywhere in the

@@ -55,6 +55,11 @@ api.interceptors.response.use(
       }
       clearTokens();
       window.location.href = "/login";
+      // The page is navigating away — don't let the original caller's .catch run with this
+      // now-irrelevant 401 (that's what was flashing a confusing "not authenticated" toast in
+      // the instant before the redirect actually took effect). A promise that never settles is
+      // correct here: nothing downstream should react to this request once we're leaving.
+      return new Promise(() => {});
     }
     return Promise.reject(error);
   },
