@@ -3,7 +3,7 @@ import { APIProvider, ColorScheme, Map, Marker, Polyline, useMapsLibrary } from 
 import { formatDistance, formatDuration } from "../lib/format";
 import type { Route, RouteStopView, School, Stop } from "../lib/types";
 import { Modal } from "./Modal";
-import { APPROX_LINE_COLOR, FitBounds, FlagIcon, SCHOOL_MARKER_ICON, numberedMarkerIcon } from "./routeMapShared";
+import { APPROX_LINE_COLOR, DEPOT_MARKER_ICON, FitBounds, FlagIcon, MAP_LIBRARIES, SCHOOL_MARKER_ICON, numberedMarkerIcon } from "./routeMapShared";
 
 const DEFAULT_CENTER = { lat: 12.9352, lng: 77.5623 };
 
@@ -19,12 +19,35 @@ interface OrderedStop {
  * the route predates this column) falls back to a plain straight segment, drawn in a visibly
  * different muted color rather than pretending it's a real road path.
  */
-function RoadPath({ orderedStops, schoolPoint }: { orderedStops: OrderedStop[]; schoolPoint: google.maps.LatLngLiteral | null }) {
+function RoadPath({
+  orderedStops,
+  schoolPoint,
+  depotPoint,
+  depotPolylineToFirstStop,
+}: {
+  orderedStops: OrderedStop[];
+  schoolPoint: google.maps.LatLngLiteral | null;
+  depotPoint: google.maps.LatLngLiteral | null;
+  depotPolylineToFirstStop: string | null;
+}) {
   const geometryLibrary = useMapsLibrary("geometry");
 
   const segments = useMemo(() => {
     if (!geometryLibrary) return [];
     const result: { path: google.maps.LatLngLiteral[]; isApprox: boolean }[] = [];
+    if (depotPoint && orderedStops.length > 0) {
+      if (depotPolylineToFirstStop) {
+        const decoded = geometryLibrary.encoding
+          .decodePath(depotPolylineToFirstStop)
+          .map((latLng) => ({ lat: latLng.lat(), lng: latLng.lng() }));
+        result.push({ path: decoded, isApprox: false });
+      } else {
+        result.push({
+          path: [depotPoint, { lat: orderedStops[0].stop.lat, lng: orderedStops[0].stop.lng }],
+          isApprox: true,
+        });
+      }
+    }
     orderedStops.forEach((current, index) => {
       const next = index < orderedStops.length - 1 ? orderedStops[index + 1].stop : null;
       const nextPoint = next ? { lat: next.lat, lng: next.lng } : schoolPoint;
@@ -44,7 +67,7 @@ function RoadPath({ orderedStops, schoolPoint }: { orderedStops: OrderedStop[]; 
       }
     });
     return result;
-  }, [geometryLibrary, orderedStops, schoolPoint]);
+  }, [geometryLibrary, orderedStops, schoolPoint, depotPoint, depotPolylineToFirstStop]);
 
   return (
     <>
@@ -92,17 +115,32 @@ export function RouteMapModal({
   const schoolPoint = school
     ? { lat: school.lat, lng: school.lng, name: school.name }
     : null;
+  const depotPoint =
+    route.vehicleDepotLat != null && route.vehicleDepotLng != null
+      ? { lat: route.vehicleDepotLat, lng: route.vehicleDepotLng, name: route.vehicleDepotName ?? "Depot" }
+      : null;
 
   const allPoints = useMemo(() => {
     const points = stopPoints.map((s) => ({ lat: s.lat, lng: s.lng }));
     if (schoolPoint) points.push({ lat: schoolPoint.lat, lng: schoolPoint.lng });
+    if (depotPoint) points.unshift({ lat: depotPoint.lat, lng: depotPoint.lng });
     return points;
-  }, [stopPoints, schoolPoint]);
+  }, [stopPoints, schoolPoint, depotPoint]);
 
+  // The depot leg counts toward the same "known vs. partial" total as every other leg — it's
+  // computed and stored exactly the same way (see backend RouteService.saveRouteStopsWithLegs),
+  // just not attached to a RouteStop row.
   const knownLegs = orderedStops.filter((os) => os.routeStop.roadDistanceToNextM != null);
-  const totalKnownM = knownLegs.reduce((sum, os) => sum + (os.routeStop.roadDistanceToNextM ?? 0), 0);
-  const totalKnownS = knownLegs.reduce((sum, os) => sum + (os.routeStop.roadDurationToNextS ?? 0), 0);
-  const isPartial = knownLegs.length < orderedStops.length;
+  const hasKnownDepotLeg = depotPoint != null && route.depotDistanceToFirstStopM != null;
+  const totalKnownM =
+    knownLegs.reduce((sum, os) => sum + (os.routeStop.roadDistanceToNextM ?? 0), 0) +
+    (route.depotDistanceToFirstStopM ?? 0);
+  const totalKnownS =
+    knownLegs.reduce((sum, os) => sum + (os.routeStop.roadDurationToNextS ?? 0), 0) +
+    (route.depotDurationToFirstStopS ?? 0);
+  const totalLegs = orderedStops.length + (depotPoint != null ? 1 : 0);
+  const totalKnownLegs = knownLegs.length + (hasKnownDepotLeg ? 1 : 0);
+  const isPartial = totalKnownLegs < totalLegs;
 
   return (
     <Modal maxWidthClassName="max-w-3xl">
@@ -112,10 +150,10 @@ export function RouteMapModal({
           <p className="mt-1 text-sm text-text-muted">
             Map preview — stops in order, ending at the destination school.
           </p>
-          {knownLegs.length > 0 && (
+          {totalKnownLegs > 0 && (
             <p
               className="mt-1 text-sm text-text-primary"
-              title={isPartial ? `${knownLegs.length} of ${orderedStops.length} legs known` : undefined}
+              title={isPartial ? `${totalKnownLegs} of ${totalLegs} legs known` : undefined}
             >
               Total: {formatDistance(totalKnownM)} · {formatDuration(totalKnownS)}
               {isPartial && <span className="text-warning"> *</span>}
@@ -145,7 +183,7 @@ export function RouteMapModal({
       )}
 
       {apiKey && allPoints.length > 0 && (
-        <APIProvider apiKey={apiKey} libraries={["geometry"]}>
+        <APIProvider apiKey={apiKey} libraries={MAP_LIBRARIES}>
           <div className="mt-4 h-96 w-full overflow-hidden rounded-md border border-border">
             <Map
               defaultCenter={allPoints[0] ?? DEFAULT_CENTER}
@@ -155,7 +193,19 @@ export function RouteMapModal({
               colorScheme={ColorScheme.DARK}
             >
               <FitBounds points={allPoints} />
-              <RoadPath orderedStops={orderedStops} schoolPoint={schoolPoint} />
+              <RoadPath
+                orderedStops={orderedStops}
+                schoolPoint={schoolPoint}
+                depotPoint={depotPoint}
+                depotPolylineToFirstStop={route.depotPolylineToFirstStop}
+              />
+              {depotPoint && (
+                <Marker
+                  position={{ lat: depotPoint.lat, lng: depotPoint.lng }}
+                  icon={DEPOT_MARKER_ICON}
+                  title={depotPoint.name}
+                />
+              )}
               {stopPoints.map((stop, index) => (
                 <Marker
                   key={stop.id}
@@ -184,6 +234,18 @@ export function RouteMapModal({
       )}
 
       <div className="mt-4 flex flex-col gap-1.5">
+        {depotPoint && (
+          <div className="flex items-center gap-2.5 text-sm">
+            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-bg-base text-text-muted">
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="currentColor">
+                <path d="M3 11 12 4 21 11 V20 A1 1 0 0 1 20 21 H4 A1 1 0 0 1 3 20 Z" />
+              </svg>
+            </span>
+            <span className="text-text-primary">
+              {depotPoint.name} <span className="text-text-muted">— depot, stop 0</span>
+            </span>
+          </div>
+        )}
         {stopPoints.map((stop, index) => (
           <div key={stop.id} className="flex items-center gap-2.5 text-sm">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent-bg text-xs font-semibold text-accent-muted">

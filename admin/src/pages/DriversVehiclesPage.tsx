@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useAuth } from "../lib/AuthContext";
+import { usePagedSearch } from "../lib/usePagedSearch";
 import { useDeleteDriver, useDeleteVehicle, useDrivers, useRoutes, useVehicles } from "../lib/queries";
 import { useToast } from "../lib/ToastContext";
 import { BulkImportDriversModal } from "../components/BulkImportDriversModal";
 import { BulkImportVehiclesModal } from "../components/BulkImportVehiclesModal";
 import { DriverModal } from "../components/DriverModal";
+import { PaginationBar, SearchBar } from "../components/SearchAndPagination";
 import { Tooltip } from "../components/Tooltip";
 import { VehicleModal } from "../components/VehicleModal";
 import { VehicleTypeModal } from "../components/VehicleTypeModal";
@@ -45,6 +47,16 @@ export function DriversVehiclesPage() {
 
   const driverCount = drivers.data?.length ?? 0;
   const vehicleCount = vehicles.data?.length ?? 0;
+
+  const driversSearch = usePagedSearch(
+    drivers.data,
+    (driver, query) => driver.name.toLowerCase().includes(query) || driver.phone.includes(query),
+  );
+  const vehiclesSearch = usePagedSearch(
+    vehicles.data,
+    (vehicle, query) =>
+      vehicle.regNo.toLowerCase().includes(query) || vehicle.vehicleTypeName.toLowerCase().includes(query),
+  );
 
   // Lets Delete be disabled with an explanation for a vehicle on a route, instead of the admin
   // discovering VEHICLE_IN_USE only after clicking — same pattern as Stops' "used by N routes"
@@ -131,24 +143,34 @@ export function DriversVehiclesPage() {
         )}
       </div>
 
-      <div className="mb-4 flex gap-2">
-        {(["drivers", "vehicles"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={
-              "rounded-md px-3 py-1.5 text-sm capitalize " +
-              (tab === t ? "bg-accent-bg text-accent-muted" : "text-text-muted hover:text-text-primary")
-            }
-          >
-            {t}
-          </button>
-        ))}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex gap-2">
+          {(["drivers", "vehicles"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={
+                "rounded-md px-3 py-1.5 text-sm capitalize " +
+                (tab === t ? "bg-accent-bg text-accent-muted" : "text-text-muted hover:text-text-primary")
+              }
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {tab === "drivers" && (
+          <SearchBar value={driversSearch.query} onChange={driversSearch.setQuery} placeholder="Search by name or phone…" />
+        )}
+        {tab === "vehicles" && (
+          <SearchBar value={vehiclesSearch.query} onChange={vehiclesSearch.setQuery} placeholder="Search by reg no. or type…" />
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border">
         {tab === "drivers" && (
+          <>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-accent-bg/40 text-xs uppercase tracking-wide text-accent-muted">
@@ -162,10 +184,13 @@ export function DriversVehiclesPage() {
               {drivers.isLoading && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={4}>Loading…</td></tr>
               )}
-              {drivers.data?.length === 0 && (
+              {!drivers.isLoading && driverCount === 0 && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={4}>No drivers yet.</td></tr>
               )}
-              {drivers.data?.map((driver) => {
+              {!drivers.isLoading && driverCount > 0 && driversSearch.totalCount === 0 && (
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={4}>No drivers match "{driversSearch.query}".</td></tr>
+              )}
+              {driversSearch.paged.map((driver) => {
                 const isAssigned =
                   driver.morningVehicleId != null ||
                   driver.morningCoDriverOfVehicleId != null ||
@@ -229,9 +254,18 @@ export function DriversVehiclesPage() {
               })}
             </tbody>
           </table>
+          <PaginationBar
+            page={driversSearch.page}
+            totalPages={driversSearch.totalPages}
+            totalCount={driversSearch.totalCount}
+            pageSize={driversSearch.pageSize}
+            onPageChange={driversSearch.setPage}
+          />
+          </>
         )}
 
         {tab === "vehicles" && (
+          <>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-accent-bg/40 text-xs uppercase tracking-wide text-accent-muted">
@@ -240,17 +274,21 @@ export function DriversVehiclesPage() {
                 <th className="px-5 py-3 font-medium">Seats</th>
                 <th className="px-5 py-3 font-medium">Morning</th>
                 <th className="px-5 py-3 font-medium">Evening</th>
+                <th className="px-5 py-3 font-medium">Depot</th>
                 <th className="px-5 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {vehicles.isLoading && (
-                <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>Loading…</td></tr>
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={7}>Loading…</td></tr>
               )}
-              {vehicles.data?.length === 0 && (
-                <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>No vehicles yet.</td></tr>
+              {!vehicles.isLoading && vehicleCount === 0 && (
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={7}>No vehicles yet.</td></tr>
               )}
-              {vehicles.data?.map((vehicle) => {
+              {!vehicles.isLoading && vehicleCount > 0 && vehiclesSearch.totalCount === 0 && (
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={7}>No vehicles match "{vehiclesSearch.query}".</td></tr>
+              )}
+              {vehiclesSearch.paged.map((vehicle) => {
                 const isOnRoute = vehicleIdsOnRoutes.has(vehicle.id);
                 return (
                   <tr key={vehicle.id} className="border-t border-border transition-colors hover:bg-accent-bg/40">
@@ -263,6 +301,7 @@ export function DriversVehiclesPage() {
                     <td className="px-5 py-3 text-text-muted">
                       {legCellText(vehicle.eveningDriverName, vehicle.eveningCoDriverName)}
                     </td>
+                    <td className="px-5 py-3 text-text-muted">{vehicle.depotName ?? "Not set"}</td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-3">
                         <button
@@ -298,6 +337,14 @@ export function DriversVehiclesPage() {
               })}
             </tbody>
           </table>
+          <PaginationBar
+            page={vehiclesSearch.page}
+            totalPages={vehiclesSearch.totalPages}
+            totalCount={vehiclesSearch.totalCount}
+            pageSize={vehiclesSearch.pageSize}
+            onPageChange={vehiclesSearch.setPage}
+          />
+          </>
         )}
       </div>
 

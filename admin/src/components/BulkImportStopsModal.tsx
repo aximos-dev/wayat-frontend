@@ -288,7 +288,11 @@ export function BulkImportStopsModal({ tenantId, onClose }: { tenantId: string; 
         <button
           type="button"
           onClick={handleImport}
-          disabled={validRows.length === 0 || bulkCreate.isPending}
+          // Also disabled once an import has been attempted for the current text — otherwise a
+          // second click (or an accidental double-click) resubmits the same rows, including ones
+          // that already succeeded, which then fail as duplicates. Editing the text resets
+          // submitOutcome and re-enables this.
+          disabled={validRows.length === 0 || bulkCreate.isPending || submitOutcome.size > 0}
           className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg-base disabled:opacity-50"
         >
           {bulkCreate.isPending

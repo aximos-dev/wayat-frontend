@@ -112,10 +112,6 @@ Tailwind v4 generates utility classes from the `@theme` var name after `--color-
   backend's `Vehicle` entity. The admin app's Add Vehicle form only renders the three fields the
   backend actually has (`regNo`, `type`, `seats`) and says so explicitly in the UI rather than
   rendering fake/disabled fields.
-- **No sidebar tenant name** — the bottom-left user card shows a truncated tenant *ID*, not the
-  tenant's actual name, because fetching it would need a `GET /v1/tenants/{id}` call this app
-  doesn't make yet. Trivial to add once the Settings page (which will need the same data) is
-  built.
 - **The "Stops" tab doesn't exist in the Figma design** — added anyway, because the backend has
   full Stop CRUD (including delete, with real duplicate-name/location checks) and there was no
   other way to see or remove a stop without it.

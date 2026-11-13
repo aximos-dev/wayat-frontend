@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { isAxiosError } from "axios";
+import type { ApiError } from "../lib/types";
 import { requestOtp, verifyOtp } from "../lib/auth";
 import { useAuth } from "../lib/AuthContext";
 
@@ -8,7 +10,10 @@ export function LoginPage() {
   const { refreshPrincipal } = useAuth();
 
   const [step, setStep] = useState<"phone" | "otp">("phone");
-  const [phone, setPhone] = useState("");
+  // Dev-only convenience — prefills the seeded dev admin's number so logging back in during
+  // local testing doesn't mean retyping it every time. Never defaulted in a real build (DEV is
+  // false there), so this never ships as a real user's default.
+  const [phone, setPhone] = useState(() => (import.meta.env.DEV ? "+911111100001" : ""));
   const [otp, setOtp] = useState("");
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -22,10 +27,17 @@ export function LoginPage() {
       const res = await requestOtp(phone, "ADMIN_LOGIN");
       setDevOtp(res.devOtp);
       setStep("otp");
-    } catch {
-      // The backend returns 404 NOT_FOUND for an unregistered phone — deliberately vague here
-      // too, same reasoning as the backend's own OTP error messages (see OtpService).
-      setError("No admin account found for that phone number.");
+    } catch (err) {
+      // An unregistered phone is a 404 — keep that one vague. Anything else (too many codes
+      // asked for, server down) says what actually happened; a blanket "no account" hid a rate
+      // limit once and sent us looking for a missing account that existed.
+      const status = isAxiosError<ApiError>(err) ? err.response?.status : undefined;
+      const message = isAxiosError<ApiError>(err) ? err.response?.data?.message : undefined;
+      setError(
+        status === 404
+          ? "No admin account found for that phone number."
+          : (message ?? "Couldn't reach the server — try again in a moment."),
+      );
     } finally {
       setLoading(false);
     }
@@ -39,8 +51,9 @@ export function LoginPage() {
       await verifyOtp(phone, otp, "ADMIN_LOGIN");
       refreshPrincipal();
       navigate("/", { replace: true });
-    } catch {
-      setError("Invalid or expired code.");
+    } catch (err) {
+      const message = isAxiosError<ApiError>(err) ? err.response?.data?.message : undefined;
+      setError(message ?? "Invalid or expired code.");
     } finally {
       setLoading(false);
     }

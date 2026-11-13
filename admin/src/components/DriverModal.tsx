@@ -4,6 +4,7 @@ import { useCreateDriver, useUpdateDriver } from "../lib/queries";
 import { useToast } from "../lib/ToastContext";
 import type { ApiError, Driver } from "../lib/types";
 import { Modal } from "./Modal";
+import { PhoneInput } from "./PhoneInput";
 import { InfoIcon, Tooltip } from "./Tooltip";
 
 export function DriverModal({
@@ -66,13 +67,7 @@ export function DriverModal({
         </label>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs uppercase tracking-wide text-text-muted">Phone</span>
-          <input
-            required
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="e.g. +919900011122"
-            className="rounded-md border border-border bg-bg-base px-3 py-2 text-text-primary outline-none focus:border-accent"
-          />
+          <PhoneInput required value={phone} onChange={setPhone} />
           <span className="flex items-center gap-1.5 text-xs text-text-muted">
             This is also the driver's login.
             <Tooltip

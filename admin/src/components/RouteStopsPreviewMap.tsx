@@ -3,8 +3,8 @@ import { APIProvider, ColorScheme, Map as GoogleMap, Marker, Polyline, useMapsLi
 import { formatDistance, formatDuration } from "../lib/format";
 import { fetchRoadLeg } from "../lib/googleRoutes";
 import type { RoadLeg } from "../lib/googleRoutes";
-import type { School, Stop } from "../lib/types";
-import { APPROX_LINE_COLOR, FitBounds, FlagIcon, SCHOOL_MARKER_ICON, numberedMarkerIcon } from "./routeMapShared";
+import type { School, Stop, Vehicle } from "../lib/types";
+import { APPROX_LINE_COLOR, DEPOT_MARKER_ICON, FitBounds, FlagIcon, MAP_LIBRARIES, NEW_STOP_BADGE_COLOR, SCHOOL_MARKER_ICON, numberedMarkerIcon } from "./routeMapShared";
 
 interface LegTarget {
   key: string;
@@ -63,11 +63,24 @@ function RoadPathSegments({ legTargets, legCache }: { legTargets: LegTarget[]; l
 export function RouteStopsPreviewMap({
   orderedStops,
   school,
+  vehicle,
+  newStopIndex,
   legCache,
   onLegsResolved,
 }: {
   orderedStops: Stop[];
   school: School | null;
+  /** This route's selected vehicle — only its depot fields are used, to draw/fetch the "stop 0"
+   *  leg the same way as every other leg here. Undefined/no-depot just skips that leg. Typed as
+   *  just the depot fields (not the full `Vehicle`) so a caller previewing an attach into an
+   *  already-saved route can pass the route's own denormalized `vehicleDepotName`/etc straight
+   *  through without a separate vehicle fetch. */
+  vehicle: Pick<Vehicle, "depotName" | "depotLat" | "depotLng"> | undefined;
+  /** When set, `orderedStops[newStopIndex]` is a not-yet-saved stop (an approval being attached,
+   *  or a counter-proposal) rather than one of the route's real current stops — rendered in the
+   *  same light blue used everywhere else in this app for "admin suggested/added this, not
+   *  committed yet," instead of the plain numbered-stop yellow. */
+  newStopIndex?: number;
   legCache: Map<string, RoadLeg | null>;
   onLegsResolved: (results: (readonly [string, RoadLeg | null])[]) => void;
 }) {
@@ -75,15 +88,27 @@ export function RouteStopsPreviewMap({
   const [isLoading, setIsLoading] = useState(false);
 
   const schoolPoint = school ? { lat: school.lat, lng: school.lng, name: school.name } : null;
+  const depotPoint =
+    vehicle?.depotLat != null && vehicle?.depotLng != null
+      ? { lat: vehicle.depotLat, lng: vehicle.depotLng, name: vehicle.depotName ?? "Depot" }
+      : null;
 
   const allPoints = useMemo(() => {
     const points = orderedStops.map((s) => ({ lat: s.lat, lng: s.lng }));
     if (schoolPoint) points.push({ lat: schoolPoint.lat, lng: schoolPoint.lng });
+    if (depotPoint) points.unshift({ lat: depotPoint.lat, lng: depotPoint.lng });
     return points;
-  }, [orderedStops, schoolPoint]);
+  }, [orderedStops, schoolPoint, depotPoint]);
 
   const legTargets: LegTarget[] = useMemo(() => {
     const targets: LegTarget[] = [];
+    if (depotPoint && orderedStops.length > 0) {
+      targets.push({
+        key: `depot:${orderedStops[0].id}`,
+        from: { lat: depotPoint.lat, lng: depotPoint.lng },
+        to: { lat: orderedStops[0].lat, lng: orderedStops[0].lng },
+      });
+    }
     for (let i = 0; i < orderedStops.length; i++) {
       const from = orderedStops[i];
       const to = i < orderedStops.length - 1 ? orderedStops[i + 1] : schoolPoint;
@@ -96,7 +121,7 @@ export function RouteStopsPreviewMap({
       });
     }
     return targets;
-  }, [orderedStops, schoolPoint, school?.id]);
+  }, [orderedStops, schoolPoint, school?.id, depotPoint]);
 
   const uncachedCount = legTargets.filter((t) => !legCache.has(t.key)).length;
   const resolvedLegs = legTargets
@@ -152,7 +177,7 @@ export function RouteStopsPreviewMap({
             "h-full w-full transition-[filter] duration-200 " + (isLoading ? "blur-[2px]" : "")
           }
         >
-          <APIProvider apiKey={apiKey} libraries={["geometry"]}>
+          <APIProvider apiKey={apiKey} libraries={MAP_LIBRARIES}>
             <GoogleMap
               defaultCenter={allPoints[0]}
               defaultZoom={12}
@@ -162,8 +187,16 @@ export function RouteStopsPreviewMap({
             >
               <FitBounds points={allPoints} />
               <RoadPathSegments legTargets={legTargets} legCache={legCache} />
+              {depotPoint && (
+                <Marker position={{ lat: depotPoint.lat, lng: depotPoint.lng }} icon={DEPOT_MARKER_ICON} title={depotPoint.name} />
+              )}
               {orderedStops.map((stop, index) => (
-                <Marker key={stop.id} position={{ lat: stop.lat, lng: stop.lng }} icon={numberedMarkerIcon(index + 1)} />
+                <Marker
+                  key={stop.id}
+                  position={{ lat: stop.lat, lng: stop.lng }}
+                  icon={numberedMarkerIcon(index + 1, index === newStopIndex ? NEW_STOP_BADGE_COLOR : undefined)}
+                  title={stop.name}
+                />
               ))}
               {schoolPoint && (
                 <Marker position={{ lat: schoolPoint.lat, lng: schoolPoint.lng }} icon={SCHOOL_MARKER_ICON} />
@@ -192,13 +225,24 @@ export function RouteStopsPreviewMap({
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-4 text-xs text-text-muted">
+        <p className="flex flex-wrap items-center gap-4 text-xs text-text-muted">
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-0.5 w-4 bg-accent" /> Real road path
           </span>
           <span className="flex items-center gap-1.5">
             <span className="inline-block h-0.5 w-4 bg-text-muted" /> Straight-line estimate
           </span>
+          {newStopIndex != null && (
+            <span className="flex items-center gap-1.5">
+              <span
+                className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-bg-base"
+                style={{ backgroundColor: NEW_STOP_BADGE_COLOR }}
+              >
+                {newStopIndex + 1}
+              </span>
+              Not saved yet
+            </span>
+          )}
         </p>
         {uncachedCount > 0 && !isLoading && (
           <button

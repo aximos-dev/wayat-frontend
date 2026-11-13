@@ -7,21 +7,9 @@ import type { RoadLeg } from "../lib/googleRoutes";
 import type { ApiError, Route, Stop, Vehicle } from "../lib/types";
 import { Modal } from "./Modal";
 import { RouteStopsPreviewMap } from "./RouteStopsPreviewMap";
+import { GripIcon } from "./routeMapShared";
 
 type Step = "edit" | "confirm";
-
-function GripIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <circle cx="9" cy="6" r="1.5" />
-      <circle cx="15" cy="6" r="1.5" />
-      <circle cx="9" cy="12" r="1.5" />
-      <circle cx="15" cy="12" r="1.5" />
-      <circle cx="9" cy="18" r="1.5" />
-      <circle cx="15" cy="18" r="1.5" />
-    </svg>
-  );
-}
 
 export function RouteModal({
   tenantId,
@@ -365,6 +353,7 @@ export function RouteModal({
             <RouteStopsPreviewMap
               orderedStops={orderedStops}
               school={school.data ?? null}
+              vehicle={vehicle}
               legCache={legCache}
               onLegsResolved={handleLegsResolved}
             />

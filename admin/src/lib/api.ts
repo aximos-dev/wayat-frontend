@@ -1,5 +1,5 @@
 import axios, { AxiosError } from "axios";
-import { clearTokens, getAccessToken, getRefreshToken, setTokens } from "./tokenStore";
+import { clearTokens, getAccessToken, getActingTenantId, getRefreshToken, setTokens } from "./tokenStore";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -9,6 +9,12 @@ api.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // A super admin inside a tenant: every tenant request runs as that tenant's admin (the backend
+  // only honours this header for a super admin, and never on its own /v1/platform pages).
+  const acting = getActingTenantId();
+  if (acting && !config.url?.startsWith("/v1/platform")) {
+    config.headers["X-Wayat-Tenant"] = acting;
   }
   return config;
 });

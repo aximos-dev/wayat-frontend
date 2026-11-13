@@ -21,8 +21,10 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
   const { showSuccess, showError } = useToast();
 
   const [newName, setNewName] = useState("");
+  const [newGraceSeats, setNewGraceSeats] = useState("0");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingGraceSeats, setEditingGraceSeats] = useState("0");
 
   // Lets Delete be disabled with an explanation instead of the admin discovering VEHICLE_TYPE_IN_USE
   // only after clicking — same pattern as the Stops tab's "used by N routes" guard.
@@ -47,8 +49,9 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
     const name = newName.trim();
     if (!name) return;
     try {
-      await createVehicleType.mutateAsync({ tenantId, name });
+      await createVehicleType.mutateAsync({ tenantId, name, graceSeats: Number(newGraceSeats) || 0 });
       setNewName("");
+      setNewGraceSeats("0");
       showSuccess("Vehicle type added");
     } catch (err) {
       handleApiError(err);
@@ -58,6 +61,7 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
   function startEdit(type: VehicleType) {
     setEditingId(type.id);
     setEditingName(type.name);
+    setEditingGraceSeats(String(type.graceSeats));
   }
 
   async function handleRename(e: React.FormEvent) {
@@ -65,9 +69,12 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
     const name = editingName.trim();
     if (!editingId || !name) return;
     try {
-      await updateVehicleType.mutateAsync({ vehicleTypeId: editingId, request: { name } });
+      await updateVehicleType.mutateAsync({
+        vehicleTypeId: editingId,
+        request: { name, graceSeats: Number(editingGraceSeats) || 0 },
+      });
       setEditingId(null);
-      showSuccess("Vehicle type renamed");
+      showSuccess("Vehicle type updated");
     } catch (err) {
       handleApiError(err);
     }
@@ -87,7 +94,7 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
         Shared across your fleet.
         <Tooltip
           trigger={<InfoIcon className="h-3.5 w-3.5 text-text-muted hover:text-accent-muted" />}
-          content="e.g. Van, Mini Van, Bus. Used when adding or editing a vehicle."
+          content="e.g. Van, Mini Van, Bus. Used when adding or editing a vehicle. Grace is how many extra students a vehicle of this type can take standing once its seats are full."
         />
       </p>
 
@@ -112,6 +119,16 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
                     onChange={(e) => setEditingName(e.target.value)}
                     className="flex-1 rounded-md border border-border bg-bg-surface px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
                   />
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted">
+                    Grace
+                    <input
+                      type="number"
+                      min={0}
+                      value={editingGraceSeats}
+                      onChange={(e) => setEditingGraceSeats(e.target.value)}
+                      className="w-14 rounded-md border border-border bg-bg-surface px-2 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                    />
+                  </label>
                   <button
                     type="submit"
                     disabled={!editingName.trim() || updateVehicleType.isPending}
@@ -130,6 +147,16 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
               ) : (
                 <>
                   <span className="flex-1 text-sm text-text-primary">{type.name}</span>
+                  {type.graceSeats > 0 && (
+                    <Tooltip
+                      trigger={
+                        <span className="rounded-full bg-warning-bg px-2 py-0.5 text-xs text-warning">
+                          +{type.graceSeats} grace
+                        </span>
+                      }
+                      content={`Up to ${type.graceSeats} extra student${type.graceSeats === 1 ? "" : "s"} can ride standing once a vehicle of this type is full.`}
+                    />
+                  )}
                   {usageCount > 0 && (
                     <span className="rounded-full bg-accent-bg px-2 py-0.5 text-xs text-accent-muted">
                       {usageCount} vehicle{usageCount === 1 ? "" : "s"}
@@ -176,6 +203,16 @@ export function VehicleTypeModal({ tenantId, onClose }: { tenantId: string; onCl
             placeholder="New vehicle type, e.g. Mini Van"
             className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-muted"
           />
+          <label className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted">
+            Grace
+            <input
+              type="number"
+              min={0}
+              value={newGraceSeats}
+              onChange={(e) => setNewGraceSeats(e.target.value)}
+              className="w-14 rounded-md border border-border bg-bg-surface px-2 py-1 text-sm text-text-primary outline-none focus:border-accent"
+            />
+          </label>
           <button
             type="submit"
             disabled={!newName.trim() || createVehicleType.isPending}

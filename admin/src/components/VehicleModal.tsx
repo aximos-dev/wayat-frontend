@@ -4,6 +4,7 @@ import { useCreateVehicle, useUpdateVehicle, useVehicleTypes } from "../lib/quer
 import { useToast } from "../lib/ToastContext";
 import type { ApiError, Driver, Vehicle } from "../lib/types";
 import { Modal } from "./Modal";
+import { StopLocationPicker } from "./StopLocationPicker";
 import { InfoIcon, Tooltip } from "./Tooltip";
 
 const NONE = "";
@@ -110,9 +111,20 @@ export function VehicleModal({
   const [morningCoDriverId, setMorningCoDriverId] = useState(vehicle?.morningCoDriverId ?? NONE);
   const [eveningDriverId, setEveningDriverId] = useState(vehicle?.eveningDriverId ?? NONE);
   const [eveningCoDriverId, setEveningCoDriverId] = useState(vehicle?.eveningCoDriverId ?? NONE);
+  // Depot (start/end point) is optional, so gated behind its own toggle rather than always
+  // showing a map — matches how other optional, space-hungry sections in this app (e.g. the
+  // stop-request attach-to-route reorder list) stay collapsed until opted into.
+  const [hasDepot, setHasDepot] = useState(vehicle?.depotLat != null);
+  const [depotName, setDepotName] = useState(vehicle?.depotName ?? "");
+  const [depotLat, setDepotLat] = useState<number | null>(vehicle?.depotLat ?? null);
+  const [depotLng, setDepotLng] = useState<number | null>(vehicle?.depotLng ?? null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (hasDepot && (!depotName.trim() || depotLat == null || depotLng == null)) {
+      showError("Pick a point on the map and name it, or turn off the depot toggle.");
+      return;
+    }
     const request = {
       regNo,
       vehicleTypeId,
@@ -121,6 +133,9 @@ export function VehicleModal({
       morningCoDriverId: morningCoDriverId || null,
       eveningDriverId: eveningDriverId || null,
       eveningCoDriverId: eveningCoDriverId || null,
+      depotName: hasDepot ? depotName.trim() : null,
+      depotLat: hasDepot ? depotLat : null,
+      depotLng: hasDepot ? depotLng : null,
     };
     try {
       if (isEditing) {
@@ -204,6 +219,37 @@ export function VehicleModal({
             ))}
           </select>
         </label>
+
+        <div className="rounded-md bg-bg-base p-3">
+          <label className="flex items-center gap-2.5 text-sm text-text-primary">
+            <input
+              type="checkbox"
+              checked={hasDepot}
+              onChange={(e) => setHasDepot(e.target.checked)}
+              className="h-4 w-4 accent-accent"
+            />
+            Set a start/end point (depot) for this vehicle
+          </label>
+          <p className="mt-1 pl-[26px] text-xs text-text-muted">
+            Where the driver starts the morning run and returns to after the evening run —
+            treated as stop 0 of every route this vehicle runs.
+          </p>
+          {hasDepot && (
+            <div className="mt-3 flex flex-col gap-2">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs uppercase tracking-wide text-text-muted">Depot name</span>
+                <input
+                  required={hasDepot}
+                  value={depotName}
+                  onChange={(e) => setDepotName(e.target.value)}
+                  placeholder="e.g. Gachibowli Depot Yard"
+                  className="rounded-md border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-accent"
+                />
+              </label>
+              <StopLocationPicker lat={depotLat} lng={depotLng} onChange={(lat, lng) => { setDepotLat(lat); setDepotLng(lng); }} />
+            </div>
+          )}
+        </div>
 
         <div>
           <p className="flex items-center gap-1.5 text-xs text-text-muted">

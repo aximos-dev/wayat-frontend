@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../lib/AuthContext";
 import { SchoolSection } from "../components/SchoolSection";
+import { TenantSection } from "../components/TenantSection";
 
 type Tab = "general" | "profile";
 
@@ -38,6 +39,7 @@ export function SettingsPage() {
 
       {tab === "general" && (
         <div className="flex flex-col gap-6">
+          <TenantSection tenantId={tenantId} />
           <SchoolSection tenantId={tenantId} />
         </div>
       )}

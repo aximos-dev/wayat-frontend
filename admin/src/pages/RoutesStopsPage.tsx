@@ -1,11 +1,14 @@
 import { useMemo, useState } from "react";
 import { isAxiosError } from "axios";
 import { useAuth } from "../lib/AuthContext";
+import { usePagedSearch } from "../lib/usePagedSearch";
 import { useDeleteRoute, useDeleteStop, useRoutes, useSchool, useStops, useVehicles } from "../lib/queries";
 import { useToast } from "../lib/ToastContext";
 import { BulkImportStopsModal } from "../components/BulkImportStopsModal";
+import { PaginationBar, SearchBar } from "../components/SearchAndPagination";
 import { RouteMapModal } from "../components/RouteMapModal";
 import { RouteModal } from "../components/RouteModal";
+import { RoutePlanModal } from "../components/RoutePlanModal";
 import { StopModal } from "../components/StopModal";
 import { Tooltip } from "../components/Tooltip";
 import { formatDistance, formatDuration } from "../lib/format";
@@ -21,6 +24,7 @@ export function RoutesStopsPage() {
   const [editingStop, setEditingStop] = useState<Stop | null>(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
   const [previewRoute, setPreviewRoute] = useState<Route | null>(null);
   const { showSuccess, showError } = useToast();
@@ -82,6 +86,12 @@ export function RoutesStopsPage() {
   const stopCount = stops.data?.length ?? 0;
   const routeCount = routes.data?.length ?? 0;
 
+  const routesSearch = usePagedSearch(routes.data, (route, query) => {
+    const vehicle = vehicles.data?.find((v) => v.id === route.vehicleId);
+    return route.name.toLowerCase().includes(query) || (vehicle?.regNo.toLowerCase().includes(query) ?? false);
+  });
+  const stopsSearch = usePagedSearch(stops.data, (stop, query) => stop.name.toLowerCase().includes(query));
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -92,13 +102,23 @@ export function RoutesStopsPage() {
           </p>
         </div>
         {tab === "routes" && (
-          <button
-            type="button"
-            onClick={() => setAddRouteOpen(true)}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg-base"
-          >
-            + Add route
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPlanOpen(true)}
+              title="Find a faster stop order for every route, and stops worth moving between routes"
+              className="rounded-md border border-border px-4 py-2 text-sm text-text-primary transition-colors hover:border-accent"
+            >
+              Re-plan routes
+            </button>
+            <button
+              type="button"
+              onClick={() => setAddRouteOpen(true)}
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-bg-base"
+            >
+              + Add route
+            </button>
+          </div>
         )}
         {tab === "stops" && (
           <div className="flex gap-2">
@@ -120,24 +140,34 @@ export function RoutesStopsPage() {
         )}
       </div>
 
-      <div className="mb-4 flex gap-2">
-        {(["routes", "stops"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={
-              "rounded-md px-3 py-1.5 text-sm capitalize " +
-              (tab === t ? "bg-accent-bg text-accent-muted" : "text-text-muted hover:text-text-primary")
-            }
-          >
-            {t}
-          </button>
-        ))}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex gap-2">
+          {(["routes", "stops"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={
+                "rounded-md px-3 py-1.5 text-sm capitalize " +
+                (tab === t ? "bg-accent-bg text-accent-muted" : "text-text-muted hover:text-text-primary")
+              }
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {tab === "routes" && (
+          <SearchBar value={routesSearch.query} onChange={routesSearch.setQuery} placeholder="Search by route or vehicle…" />
+        )}
+        {tab === "stops" && (
+          <SearchBar value={stopsSearch.query} onChange={stopsSearch.setQuery} placeholder="Search by name…" />
+        )}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-border">
         {tab === "routes" && (
+          <>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-accent-bg/40 text-xs uppercase tracking-wide text-accent-muted">
@@ -153,21 +183,34 @@ export function RoutesStopsPage() {
               {routes.isLoading && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>Loading…</td></tr>
               )}
-              {routes.data?.length === 0 && (
+              {!routes.isLoading && routeCount === 0 && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>No routes yet.</td></tr>
               )}
-              {routes.data?.map((route) => {
+              {!routes.isLoading && routeCount > 0 && routesSearch.totalCount === 0 && (
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>No routes match "{routesSearch.query}".</td></tr>
+              )}
+              {routesSearch.paged.map((route) => {
                 const vehicle = vehicles.data?.find((v) => v.id === route.vehicleId);
                 // Every stop has a leg to the next point (next stop, or school for the last one)
                 // — so a route's full leg count equals its stop count. A route with legs still
                 // missing (API failure, or saved before polyline storage existed) shows a
                 // "partial" hint rather than silently understating the real total.
                 const knownLegs = route.stops.filter((s) => s.roadDistanceToNextM != null);
-                const isPartial = knownLegs.length < route.stops.length;
-                const totalKnownM = knownLegs.reduce((sum, s) => sum + (s.roadDistanceToNextM ?? 0), 0);
-                const totalKnownS = knownLegs.reduce((sum, s) => sum + (s.roadDurationToNextS ?? 0), 0);
+                // The depot → first-stop leg ("stop 0") counts toward the same total, the same
+                // way — only present when the route's vehicle has a depot configured.
+                const hasDepotLeg = route.vehicleDepotLat != null;
+                const hasKnownDepotLeg = hasDepotLeg && route.depotDistanceToFirstStopM != null;
+                const totalLegs = route.stops.length + (hasDepotLeg ? 1 : 0);
+                const totalKnownLegs = knownLegs.length + (hasKnownDepotLeg ? 1 : 0);
+                const isPartial = totalKnownLegs < totalLegs;
+                const totalKnownM =
+                  knownLegs.reduce((sum, s) => sum + (s.roadDistanceToNextM ?? 0), 0) +
+                  (route.depotDistanceToFirstStopM ?? 0);
+                const totalKnownS =
+                  knownLegs.reduce((sum, s) => sum + (s.roadDurationToNextS ?? 0), 0) +
+                  (route.depotDurationToFirstStopS ?? 0);
                 const partialTitle = isPartial
-                  ? `${knownLegs.length} of ${route.stops.length} legs known — the rest failed or predate road-path storage`
+                  ? `${totalKnownLegs} of ${totalLegs} legs known — the rest failed or predate road-path storage`
                   : undefined;
                 return (
                   <tr key={route.id} className="border-t border-border transition-colors hover:bg-accent-bg/40">
@@ -175,12 +218,12 @@ export function RoutesStopsPage() {
                     <td className="px-5 py-3 text-text-muted">{vehicle ? vehicle.regNo : "—"}</td>
                     <td className="px-5 py-3 text-text-muted">{route.stops.length}</td>
                     <td className="px-5 py-3 text-text-muted" title={partialTitle}>
-                      {knownLegs.length > 0 ? formatDistance(totalKnownM) : "—"}
-                      {isPartial && knownLegs.length > 0 && <span className="text-warning"> *</span>}
+                      {totalKnownLegs > 0 ? formatDistance(totalKnownM) : "—"}
+                      {isPartial && totalKnownLegs > 0 && <span className="text-warning"> *</span>}
                     </td>
                     <td className="px-5 py-3 text-text-muted" title={partialTitle}>
-                      {knownLegs.length > 0 ? formatDuration(totalKnownS) : "—"}
-                      {isPartial && knownLegs.length > 0 && <span className="text-warning"> *</span>}
+                      {totalKnownLegs > 0 ? formatDuration(totalKnownS) : "—"}
+                      {isPartial && totalKnownLegs > 0 && <span className="text-warning"> *</span>}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-3">
@@ -212,9 +255,18 @@ export function RoutesStopsPage() {
               })}
             </tbody>
           </table>
+          <PaginationBar
+            page={routesSearch.page}
+            totalPages={routesSearch.totalPages}
+            totalCount={routesSearch.totalCount}
+            pageSize={routesSearch.pageSize}
+            onPageChange={routesSearch.setPage}
+          />
+          </>
         )}
 
         {tab === "stops" && (
+          <>
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="bg-accent-bg/40 text-xs uppercase tracking-wide text-accent-muted">
@@ -230,10 +282,13 @@ export function RoutesStopsPage() {
               {stops.isLoading && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>Loading…</td></tr>
               )}
-              {stops.data?.length === 0 && (
+              {!stops.isLoading && stopCount === 0 && (
                 <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>No stops yet.</td></tr>
               )}
-              {stops.data?.map((stop) => {
+              {!stops.isLoading && stopCount > 0 && stopsSearch.totalCount === 0 && (
+                <tr><td className="px-5 py-4 text-text-muted" colSpan={6}>No stops match "{stopsSearch.query}".</td></tr>
+              )}
+              {stopsSearch.paged.map((stop) => {
                 const usedByRoutes = routesByStopId.get(stop.id) ?? [];
                 return (
                   <tr key={stop.id} className="border-t border-border transition-colors hover:bg-accent-bg/40">
@@ -290,6 +345,14 @@ export function RoutesStopsPage() {
               })}
             </tbody>
           </table>
+          <PaginationBar
+            page={stopsSearch.page}
+            totalPages={stopsSearch.totalPages}
+            totalCount={stopsSearch.totalCount}
+            pageSize={stopsSearch.pageSize}
+            onPageChange={stopsSearch.setPage}
+          />
+          </>
         )}
       </div>
 
@@ -299,6 +362,8 @@ export function RoutesStopsPage() {
       {editingStop && (
         <StopModal tenantId={tenantId} stop={editingStop} onClose={() => setEditingStop(null)} />
       )}
+      {planOpen && <RoutePlanModal tenantId={tenantId} onClose={() => setPlanOpen(false)} />}
+
       {addRouteOpen && (
         <RouteModal
           tenantId={tenantId}
